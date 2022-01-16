@@ -21,6 +21,7 @@ from array import array
 import lc3disas # in same dir
 
 DEBUG = False
+dumpFilePath = ''
 
 def signal_handler(signal, frame):
     print("\nbye!")
@@ -42,9 +43,9 @@ class registers():
         self.cond = (c_uint16)()
 
 class condition_flags(IntEnum):
-    p = 0
-    z = 1
-    n = 2
+    p = 1
+    z = 2
+    n = 4
 
 class lc3():
     def __init__(self, filename):
@@ -91,8 +92,22 @@ class lc3():
 
         # hex
         for i in range(8):
-            print("r{}:  {:04x} ".format(i, c_uint16(self.registers.gprs[0]).value), end='')
+            print("r{}:  {:04x} ".format(i, c_uint16(self.registers.gprs[i]).value), end='')
         print()
+
+    def log_state(self, path):
+        print('\n--- Log Processor state ---')
+        with open(path, 'w') as f:
+            for idx,val in enumerate(self.memory):
+                f.writelines("M{0}: {1}\n".format(idx, val))
+            
+            for i in range(10):
+                if i == 8:
+                    f.writelines("R{0}: {1}\n".format(i,self.registers.pc.value))
+                elif i == 9:
+                    f.writelines("R{0}: {1}\n".format(i,self.registers.cond.value))
+                else:
+                    f.writelines("R{0}: {1}\n".format(i,c_uint16(self.registers.gprs[i]).value))
 
     def op_add_impl(self, instruction):
         sr1 = (instruction >> 6) & 0b111
@@ -230,6 +245,8 @@ class lc3():
 
         if trap_vector == 0x25:
             self.dump_state()
+            if dumpFilePath is not '':
+                self.log_state(dumpFilePath)
             exit()
 
         raise ValueError("undefined trap vector {}".format(hex(trap_vector)))
@@ -253,18 +270,42 @@ class lc3():
             if DEBUG:
                 print("instruction: {}".format(hex(instruction)))
                 print("disassembly: {}".format(lc3disas.single_ins(self.registers.pc.value, instruction)))
+                print("Processor State before execution")
+                print("=============================\n=============================")
                 self.dump_state()
-                input()
 
             try:
                 self._opcode_funcs[opcode](instruction)
+
+                if DEBUG:
+                    print("\n\nAfter Execution")
+                    self.dump_state()
+                    print("=============================\n=============================")
+                    input()
+                    
             except KeyError:
                 raise NotImplementedError("invalid opcode")
 
 ##############################################################################
 
-if len(argv) < 2:
-    print ("usage: python3 lc3.py code.obj")
-    exit(255)
-l = lc3(argv[1])
-l.start()
+def main():
+    print("Start Script: ", argv[0])
+    if len(argv) < 2:
+        print ("usage: python3 lc3.py code.obj")
+        exit(255)
+    if len(argv) > 2:
+        global DEBUG
+        global dumpFilePath
+        print ("Enable debugging with lvl: ", argv[2])
+        if argv[2] == '1':
+            DEBUG = True
+        elif argv[2] == '2':
+            dumpFilePath = argv[3]
+        
+
+    l = lc3(argv[1])
+    l.start()
+
+
+if __name__ == "__main__":
+    main()
