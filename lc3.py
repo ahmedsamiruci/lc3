@@ -53,6 +53,7 @@ class lc3():
         self.memory = array('H', [0]*65536)
         self.registers = registers()
         self.registers.pc.value = 0x3000 # default program starting location
+        self.registers.cond = condition_flags.p #initialize conditional register
         self.read_program_from_file(filename)
 
         # the indexes are the same as the decimal representation.
