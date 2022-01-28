@@ -19,9 +19,9 @@ from sys import exit, stdin, stdout, argv
 from signal import signal, SIGINT
 from array import array
 import lc3disas # in same dir
+import os
 
 DEBUG = False
-dumpFilePath = ''
 
 def signal_handler(signal, frame):
     print("\nbye!")
@@ -48,13 +48,14 @@ class condition_flags(IntEnum):
     n = 4
 
 class lc3():
-    def __init__(self, filename):
+    def __init__(self, fileDir):
         # create an array of 16b unsigned locations
         self.memory = array('H', [0]*65536)
         self.registers = registers()
         self.registers.pc.value = 0x3000 # default program starting location
         self.registers.cond = condition_flags.p #initialize conditional register
-        self.read_program_from_file(filename)
+        self.workingDir = fileDir
+        self.read_program(fileDir)
 
         # the indexes are the same as the decimal representation.
         # i.e. order in this list matters.
@@ -66,12 +67,22 @@ class lc3():
         # Underscored b/c they're not meant to be called externally.
         self._opcode_funcs = [ getattr(self, f'op_{op}_impl') for op in self.opcode_names ]
 
+    def getFilesList(self, fileDir, fileExt):
+        filesList = [os.path.join(fileDir, _) for _ in os.listdir(fileDir) if _.endswith(fileExt)]
+        return filesList
+
+    def read_program(self, fileDir):
+        filesList = self.getFilesList(fileDir, '.obj')
+        for filename in filesList:
+            self.read_program_from_file(filename)
+
     def read_program_from_file(self,filename):
         with open(filename, 'rb') as f:
-            _ = f.read(2) # skip the first two byte which specify where code should be mapped
+            loadAdd = int.from_bytes(f.read(2),'big') # skip the first two byte which specify where code should be mapped
+            print('LoadApp location: {}'.format(hex(loadAdd)))
             c = f.read()  # todo support arbitrary load locations
         for count in range(0,len(c), 2):
-            self.memory[int(0x3000+count/2)] = unpack( '>H', c[count:count+2] )[0]
+            self.memory[int(loadAdd+count/2)] = unpack( '>H', c[count:count+2] )[0]
 
     def update_flags(self, reg):
         if self.registers.gprs[reg] == 0:
@@ -83,7 +94,7 @@ class lc3():
 
     def dump_state(self):
         print('\n--- Processor State ---')
-        print("pc: {:04x}".format(self.registers.pc.value), end='  ')
+        print("pc: 0x{:04x}".format(self.registers.pc.value), end='  ')
         print("cond: {}".format(condition_flags(self.registers.cond.value).name))
 
         # decimal
@@ -93,7 +104,7 @@ class lc3():
 
         # hex
         for i in range(8):
-            print("r{}:  {:04x} ".format(i, c_uint16(self.registers.gprs[i]).value), end='')
+            print("r{}:  0x{:04x} ".format(i, c_uint16(self.registers.gprs[i]).value), end='')
         print()
 
     def log_state(self, path):
@@ -222,6 +233,9 @@ class lc3():
 
     def op_trap_impl(self, instruction):
         trap_vector = instruction & 0xff
+        
+        #self.registers.gprs[7] = self.registers.pc.value    # Save PC to R7
+        #self.registers.pc.value = trap_vector & 0x00ff      #point PC to the address of trapvector
 
         if trap_vector == 0x20: # getc
             c = stdin.buffer.read(1)[0]
@@ -242,12 +256,20 @@ class lc3():
                 stdout.buffer.write( bytes( [nextchar] ) )
                 index = index + 1
 
+            stdout.buffer.flush()
             return
+
+        if trap_vector == 0x23: # IN
+            #ToDo:
+            raise NotImplementedError("unimplemented IN Trap")
+
+        if trap_vector == 0x24: # PUTSP
+            #ToDo:
+            raise NotImplementedError("unimplemented PUTSP Trap")
 
         if trap_vector == 0x25:
             self.dump_state()
-            if dumpFilePath is not '':
-                self.log_state(dumpFilePath)
+            self.log_state(os.path.join(self.workingDir, 'dump'))
             exit()
 
         raise ValueError("undefined trap vector {}".format(hex(trap_vector)))
@@ -295,13 +317,8 @@ def main():
         print ("usage: python3 lc3.py code.obj")
         exit(255)
     if len(argv) > 2:
-        global DEBUG
-        global dumpFilePath
-        print ("Enable debugging with lvl: ", argv[2])
-        if argv[2] == '1':
-            DEBUG = True
-        elif argv[2] == '2':
-            dumpFilePath = argv[3]
+        DEBUG = True
+
         
 
     l = lc3(argv[1])
