@@ -233,9 +233,9 @@ class lc3():
 
     def op_trap_impl(self, instruction):
         trap_vector = instruction & 0xff
-        
-        #self.registers.gprs[7] = self.registers.pc.value    # Save PC to R7
-        #self.registers.pc.value = trap_vector & 0x00ff      #point PC to the address of trapvector
+                    
+        self.registers.gprs[7] = self.registers.pc.value    # R7 = PC;
+        self.registers.pc.value = self.memory[trap_vector&0x00ff]        #PC = mem[ZEXT(trapvect8)];
 
         if trap_vector == 0x20: # getc
             c = stdin.buffer.read(1)[0]
@@ -269,6 +269,12 @@ class lc3():
 
         if trap_vector == 0x25:
             self.dump_state()
+            #self.log_state(os.path.join(self.workingDir, 'dump'))
+            #exit()
+            return
+
+        if trap_vector == 0xff:
+            print("!!! ---- hit the special trap_vector ---- !!!")
             self.log_state(os.path.join(self.workingDir, 'dump'))
             exit()
 
@@ -316,7 +322,8 @@ def main():
     if len(argv) < 2:
         print ("usage: python3 lc3.py code.obj")
         exit(255)
-    if len(argv) > 2:
+    else:
+        global DEBUG
         DEBUG = True
 
         
