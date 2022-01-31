@@ -14,6 +14,7 @@
 
 from ctypes import c_uint16, c_int16
 from enum import IntEnum
+from pickle import FALSE
 from struct import unpack
 from sys import exit, stdin, stdout, argv
 from signal import signal, SIGINT
@@ -22,6 +23,7 @@ import lc3disas # in same dir
 import os
 
 DEBUG = False
+INPUT = False
 
 def signal_handler(signal, frame):
     print("\nbye!")
@@ -38,7 +40,7 @@ def sext(value, bits):
 
 class registers():
     def __init__(self):
-        self.gprs = array('h', [0]*10)
+        self.gprs = array('l', [0]*10)
         self.pc = (c_uint16)()
         self.cond = (c_uint16)()
 
@@ -55,6 +57,7 @@ class lc3():
         self.registers.pc.value = 0x3000 # default program starting location
         self.registers.cond = condition_flags.p #initialize conditional register
         self.workingDir = fileDir
+        self.dumpIdx = '1'
         self.read_program(fileDir)
 
         # the indexes are the same as the decimal representation.
@@ -108,7 +111,10 @@ class lc3():
         print()
 
     def log_state(self, path):
-        print('\n--- Log Processor state ---')
+        print('\n--- Log Processor state in file ---')
+        path = path + self.dumpIdx
+        #increment the path
+        self.dumpIdx = str(int(self.dumpIdx) + 1)
         with open(path, 'w') as f:
             for idx,val in enumerate(self.memory):
                 f.writelines("M{0}: {1}\n".format(idx, val))
@@ -172,7 +178,7 @@ class lc3():
 
     def op_jsr_impl(self, instruction):
         # no jsrr?
-        if (0x0800 & instruction) == 0x0800: raise NotImplementedError("JSRR is not implemented.")
+        if (0x0800 & instruction) != 0x0800: raise NotImplementedError("JSRR is not implemented.")
         pc_offset_11 = instruction & 0x7ff
 
         self.registers.gprs[7] = self.registers.pc.value
@@ -234,8 +240,8 @@ class lc3():
     def op_trap_impl(self, instruction):
         trap_vector = instruction & 0xff
                     
-        self.registers.gprs[7] = self.registers.pc.value    # R7 = PC;
-        self.registers.pc.value = self.memory[trap_vector&0x00ff]        #PC = mem[ZEXT(trapvect8)];
+        self.registers.gprs[7] = self.registers.pc.value            # R7 = PC;
+        self.registers.pc.value = self.memory[trap_vector&0x00ff]   #PC = mem[ZEXT(trapvect8)];
 
         if trap_vector == 0x20: # getc
             c = stdin.buffer.read(1)[0]
@@ -268,15 +274,29 @@ class lc3():
             raise NotImplementedError("unimplemented PUTSP Trap")
 
         if trap_vector == 0x25:
-            self.dump_state()
+            print("HALT instruction in VM")
+            #self.dump_state()
             #self.log_state(os.path.join(self.workingDir, 'dump'))
             #exit()
             return
 
+        if trap_vector == 0x26:
+            print("------ Yield Trap ------")
+            return
+
         if trap_vector == 0xff:
-            print("!!! ---- hit the special trap_vector ---- !!!")
-            self.log_state(os.path.join(self.workingDir, 'dump'))
-            exit()
+            #print("!!! ---- hit the special trap_vector ---- !!!")
+            try:
+                os.mkdir(os.path.join(self.workingDir,'dumps'))
+            except FileExistsError:
+                print("")
+
+            # restore the PC counter to continue execution, as trap 0xff is not implemented
+            self.registers.pc.value = self.registers.gprs[7]
+            
+            self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump2_'))
+            #print("!!! ---- Restore PC to initial value before the trap ---- !!!")
+            return
 
         raise ValueError("undefined trap vector {}".format(hex(trap_vector)))
 
@@ -310,7 +330,8 @@ class lc3():
                     print("\n\nAfter Execution")
                     self.dump_state()
                     print("=============================\n=============================")
-                    input()
+                    if INPUT:
+                        input()
                     
             except KeyError:
                 raise NotImplementedError("invalid opcode")
@@ -322,9 +343,15 @@ def main():
     if len(argv) < 2:
         print ("usage: python3 lc3.py code.obj")
         exit(255)
-    else:
+    if len(argv) > 2:
         global DEBUG
-        DEBUG = True
+        global INPUT
+        print ("Enable debugging with lvl: ", argv[2])
+        if argv[2] == '1':
+            DEBUG = True
+        elif argv[2] == '2':
+            DEBUG = True
+            INPUT = True
 
         
 
