@@ -54,6 +54,7 @@ class lc3():
         # create an array of 16b unsigned locations
         self.memory = array('H', [0]*65536)
         self.registers = registers()
+        self.mr_sm = 0xFE04
         self.registers.pc.value = 0x3000 # default program starting location
         self.registers.cond = condition_flags.p #initialize conditional register
         self.workingDir = fileDir
@@ -98,6 +99,7 @@ class lc3():
     def dump_state(self):
         print('\n--- Processor State ---')
         print("pc: 0x{:04x}".format(self.registers.pc.value), end='  ')
+        print("mr_sm: 0x{:04x}".format(self.memory[self.mr_sm]), end='  ')
         print("cond: {}".format(condition_flags(self.registers.cond.value).name))
 
         # decimal
@@ -128,11 +130,40 @@ class lc3():
                     f.writelines("R{0}: {1}\n".format(i,c_uint16(self.registers.gprs[i]).value))
 
 
-    def mem_read(self, index):
-        return self.memory[index]
+    def restricted_addr(self, addr):
+        # List all restricted address for Supervisor Mode
+        if addr == self.mr_sm:
+                return True
+        
+        # Not restricted address
+        return False
+
+
+    def sup_mode(self):
+        return False if self.memory[self.mr_sm] == 0 else True
+
+    def is_access_restricted(self, addr):
+        if not self.sup_mode():
+            print("User mode, access addr = 0x{:04x}".format(addr))
+            return self.restricted_addr(addr)
+            
+        print("Supervisor mode, access addr = 0x{:04x}".format(addr))
+        return False
+
+
+    def mem_read(self, addr):
+        if self.is_access_restricted(addr):
+            raise PermissionError("Not enough read permissions!")
+
+        return self.memory[addr]
     
-    def mem_write(self, index, val):
-        self.memory[index] = val
+    def mem_write(self, addr, val):
+        if self.is_access_restricted(addr):
+            raise PermissionError("Not enough write permissions!")
+
+        # write memory
+        self.memory[addr] = val
+           
 
     def op_add_impl(self, instruction):
         sr1 = (instruction >> 6) & 0b111
@@ -248,7 +279,9 @@ class lc3():
 
     def op_trap_impl(self, instruction):
         trap_vector = instruction & 0xff
-                    
+        # Switch to Supervisor Mode
+        self.memory[self.mr_sm] = 1
+
         self.registers.gprs[7] = self.registers.pc.value            # R7 = PC;
         #PC = mem[ZEXT(trapvect8)];
         self.registers.pc.value = self.mem_read(trap_vector&0x00ff) #self.memory[trap_vector&0x00ff]   
@@ -304,9 +337,9 @@ class lc3():
 
             # restore the PC counter to continue execution, as trap 0xff is not implemented
             self.registers.pc.value = self.registers.gprs[7]
+
+            self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump_p2_'))
             
-            self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump2_'))
-            #print("!!! ---- Restore PC to initial value before the trap ---- !!!")
             return
 
         raise ValueError("undefined trap vector {}".format(hex(trap_vector)))
@@ -319,7 +352,7 @@ class lc3():
     def start(self):
         while True:
             # fetch instruction
-            instruction = self.mem_read(self.registers.pc.value) #self.memory[self.registers.pc.value]
+            instruction = self.memory[self.registers.pc.value]
 
             # update PC
             self.registers.pc.value = self.registers.pc.value + 1
@@ -343,7 +376,10 @@ class lc3():
                     print("=============================\n=============================")
                     if INPUT:
                         input()
-                    
+            except PermissionError:
+                print("Instn write/read permission violation!!")
+                self.dump_state()
+                self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump_p2_'))
             except KeyError:
                 raise NotImplementedError("invalid opcode")
 

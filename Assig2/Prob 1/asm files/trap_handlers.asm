@@ -85,12 +85,17 @@ RESUME_PROC
                     ; Set the CUR_THRD with the new Thread
             LEA R4, CUR_THRD     ; R4 <- CUR_THRD var address
             STR R0, R4, #0      ; mem[ CURR_THRD ] <- R0
-            
+
                 ; Restore the registers from PCB 
             LDR R6, R0, #1      ; R6 <- mem [ PCBx[1] ] ; R6 <- get the func add from PCBx
             LDR R1, R0, #2      ; R1 <- PCBx[2]
             LDR R2, R0, #3      ; R2 <- PCBx[3]
+                
             TRAP    xFF         ; Dump memory
+                ; Switch to User Mode
+            AND R5, R5, #0      ; R5 <- 0 [The user mode value of MR_SM register]
+            STI R5, MR_SM_ADDR  ; Mem[ MR_SM_ADDR ] = 0
+            
             JMP R6             ; start executing the thread function
 
 
@@ -104,4 +109,5 @@ CONST_FRST_THRD .FILL   x200
 THRD_READY      .FILL   #1
 THRD_RUNNING    .FILL   #2
 THRD_TERM       .FILL   #0
+MR_SM_ADDR      .FILL   xFE04   ; Memory Mapped address for Supervisor Mode register
                 .END
