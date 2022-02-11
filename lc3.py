@@ -14,14 +14,16 @@
 
 from ctypes import c_uint16, c_int16
 from enum import IntEnum
+from pickle import FALSE
 from struct import unpack
 from sys import exit, stdin, stdout, argv
 from signal import signal, SIGINT
 from array import array
 import lc3disas # in same dir
+import os
 
 DEBUG = False
-dumpFilePath = ''
+INPUT = False
 
 def signal_handler(signal, frame):
     print("\nbye!")
@@ -38,7 +40,7 @@ def sext(value, bits):
 
 class registers():
     def __init__(self):
-        self.gprs = array('h', [0]*10)
+        self.gprs = array('l', [0]*10)
         self.pc = (c_uint16)()
         self.cond = (c_uint16)()
 
@@ -48,13 +50,15 @@ class condition_flags(IntEnum):
     n = 4
 
 class lc3():
-    def __init__(self, filename):
+    def __init__(self, fileDir):
         # create an array of 16b unsigned locations
         self.memory = array('H', [0]*65536)
         self.registers = registers()
         self.registers.pc.value = 0x3000 # default program starting location
         self.registers.cond = condition_flags.p #initialize conditional register
-        self.read_program_from_file(filename)
+        self.workingDir = fileDir
+        self.dumpIdx = '1'
+        self.read_program(fileDir)
 
         # the indexes are the same as the decimal representation.
         # i.e. order in this list matters.
@@ -66,12 +70,22 @@ class lc3():
         # Underscored b/c they're not meant to be called externally.
         self._opcode_funcs = [ getattr(self, f'op_{op}_impl') for op in self.opcode_names ]
 
+    def getFilesList(self, fileDir, fileExt):
+        filesList = [os.path.join(fileDir, _) for _ in os.listdir(fileDir) if _.endswith(fileExt)]
+        return filesList
+
+    def read_program(self, fileDir):
+        filesList = self.getFilesList(fileDir, '.obj')
+        for filename in filesList:
+            self.read_program_from_file(filename)
+
     def read_program_from_file(self,filename):
         with open(filename, 'rb') as f:
-            _ = f.read(2) # skip the first two byte which specify where code should be mapped
+            loadAdd = int.from_bytes(f.read(2),'big') # skip the first two byte which specify where code should be mapped
+            print('LoadApp location: {}'.format(hex(loadAdd)))
             c = f.read()  # todo support arbitrary load locations
         for count in range(0,len(c), 2):
-            self.memory[int(0x3000+count/2)] = unpack( '>H', c[count:count+2] )[0]
+            self.memory[int(loadAdd+count/2)] = unpack( '>H', c[count:count+2] )[0]
 
     def update_flags(self, reg):
         if self.registers.gprs[reg] == 0:
@@ -83,7 +97,7 @@ class lc3():
 
     def dump_state(self):
         print('\n--- Processor State ---')
-        print("pc: {:04x}".format(self.registers.pc.value), end='  ')
+        print("pc: 0x{:04x}".format(self.registers.pc.value), end='  ')
         print("cond: {}".format(condition_flags(self.registers.cond.value).name))
 
         # decimal
@@ -93,11 +107,14 @@ class lc3():
 
         # hex
         for i in range(8):
-            print("r{}:  {:04x} ".format(i, c_uint16(self.registers.gprs[i]).value), end='')
+            print("r{}:  0x{:04x} ".format(i, c_uint16(self.registers.gprs[i]).value), end='')
         print()
 
     def log_state(self, path):
-        print('\n--- Log Processor state ---')
+        print('\n--- Log Processor state in file ---')
+        path = path + self.dumpIdx
+        #increment the path
+        self.dumpIdx = str(int(self.dumpIdx) + 1)
         with open(path, 'w') as f:
             for idx,val in enumerate(self.memory):
                 f.writelines("M{0}: {1}\n".format(idx, val))
@@ -161,7 +178,7 @@ class lc3():
 
     def op_jsr_impl(self, instruction):
         # no jsrr?
-        if (0x0800 & instruction) == 0x0800: raise NotImplementedError("JSRR is not implemented.")
+        if (0x0800 & instruction) != 0x0800: raise NotImplementedError("JSRR is not implemented.")
         pc_offset_11 = instruction & 0x7ff
 
         self.registers.gprs[7] = self.registers.pc.value
@@ -222,6 +239,9 @@ class lc3():
 
     def op_trap_impl(self, instruction):
         trap_vector = instruction & 0xff
+                    
+        self.registers.gprs[7] = self.registers.pc.value            # R7 = PC;
+        self.registers.pc.value = self.memory[trap_vector&0x00ff]   #PC = mem[ZEXT(trapvect8)];
 
         if trap_vector == 0x20: # getc
             c = stdin.buffer.read(1)[0]
@@ -242,13 +262,41 @@ class lc3():
                 stdout.buffer.write( bytes( [nextchar] ) )
                 index = index + 1
 
+            stdout.buffer.flush()
             return
 
+        if trap_vector == 0x23: # IN
+            #ToDo:
+            raise NotImplementedError("unimplemented IN Trap")
+
+        if trap_vector == 0x24: # PUTSP
+            #ToDo:
+            raise NotImplementedError("unimplemented PUTSP Trap")
+
         if trap_vector == 0x25:
-            self.dump_state()
-            if dumpFilePath is not '':
-                self.log_state(dumpFilePath)
-            exit()
+            print("HALT instruction in VM")
+            #self.dump_state()
+            #self.log_state(os.path.join(self.workingDir, 'dump'))
+            #exit()
+            return
+
+        if trap_vector == 0x26:
+            print("------ Yield Trap ------")
+            return
+
+        if trap_vector == 0xff:
+            #print("!!! ---- hit the special trap_vector ---- !!!")
+            try:
+                os.mkdir(os.path.join(self.workingDir,'dumps'))
+            except FileExistsError:
+                print("")
+
+            # restore the PC counter to continue execution, as trap 0xff is not implemented
+            self.registers.pc.value = self.registers.gprs[7]
+            
+            self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump2_'))
+            #print("!!! ---- Restore PC to initial value before the trap ---- !!!")
+            return
 
         raise ValueError("undefined trap vector {}".format(hex(trap_vector)))
 
@@ -282,7 +330,8 @@ class lc3():
                     print("\n\nAfter Execution")
                     self.dump_state()
                     print("=============================\n=============================")
-                    input()
+                    if INPUT:
+                        input()
                     
             except KeyError:
                 raise NotImplementedError("invalid opcode")
@@ -296,12 +345,14 @@ def main():
         exit(255)
     if len(argv) > 2:
         global DEBUG
-        global dumpFilePath
+        global INPUT
         print ("Enable debugging with lvl: ", argv[2])
         if argv[2] == '1':
             DEBUG = True
         elif argv[2] == '2':
-            dumpFilePath = argv[3]
+            DEBUG = True
+            INPUT = True
+
         
 
     l = lc3(argv[1])

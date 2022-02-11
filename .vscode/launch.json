@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args":["assembly_code1.obj", "1", "assembly_code1.dump"]
+            "args":["/Volumes/GoogleDrive/.shortcut-targets-by-id/1-AREc0ZM7eaj3rjcvwPWX52RAa8wTRUb/Masters-UCI/Winter-2022/Adv Sys SW (EECS 211)/Assignment1/problem3" , "1"]
         }
     ]
 }
