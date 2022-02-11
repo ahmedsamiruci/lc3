@@ -127,6 +127,13 @@ class lc3():
                 else:
                     f.writelines("R{0}: {1}\n".format(i,c_uint16(self.registers.gprs[i]).value))
 
+
+    def mem_read(self, index):
+        return self.memory[index]
+    
+    def mem_write(self, index, val):
+        self.memory[index] = val
+
     def op_add_impl(self, instruction):
         sr1 = (instruction >> 6) & 0b111
         dr  = (instruction >> 9) & 0b111
@@ -188,14 +195,14 @@ class lc3():
         dr = (instruction >> 9) & 0b111
         pc_offset_9 = instruction & 0x1ff
         addr = self.registers.pc.value + sext(pc_offset_9, 9)
-        self.registers.gprs[dr] = self.memory[addr]
+        self.registers.gprs[dr] = self.mem_read(addr) #self.memory[addr]
         self.update_flags(dr)
 
     def op_ldi_impl(self, instruction):
         dr = (instruction >> 9) & 0b111
         pc_offset_9 = instruction & 0x1ff
         addr = self.registers.pc.value + sext(pc_offset_9, 9)
-        self.registers.gprs[dr] = self.memory[ self.memory[addr] ]
+        self.registers.gprs[dr] = self.mem_read( self.mem_read(addr) ) #self.memory[ self.memory[addr] ]
         self.update_flags(dr)
 
     def op_ldr_impl(self, instruction):
@@ -204,7 +211,7 @@ class lc3():
         pc_offset_6 = instruction & 0x3f
 
         addr = self.registers.gprs[baser] + sext(pc_offset_6, 6)
-        self.registers.gprs[dr] = self.memory[addr]
+        self.registers.gprs[dr] = self.mem_read(addr) #self.memory[addr]
 
         self.update_flags(dr)
 
@@ -220,14 +227,16 @@ class lc3():
         pc_offset_9 = instruction & 0x1ff
         addr = self.registers.pc.value + sext(pc_offset_9, 9)
 
-        self.memory[addr] = self.registers.gprs[dr]
+        self.mem_write(addr, self.registers.gprs[dr]) #self.memory[addr] = self.registers.gprs[dr]
 
     def op_sti_impl(self, instruction):
         dr = (instruction >> 9) & 0b111
         pc_offset_9 = instruction & 0x1ff
         addr = self.registers.pc.value + sext(pc_offset_9, 9)
-
-        self.memory[ self.memory[addr] ] = self.registers.gprs[dr]
+        
+        #self.memory[ self.memory[addr] ] = self.registers.gprs[dr]
+        wrt_addr = self.mem_read(addr)
+        self.mem_write(wrt_addr, self.registers.gprs[dr])
 
     def op_str_impl(self, instruction):
         dr = (instruction >> 9) & 0b111
@@ -235,13 +244,15 @@ class lc3():
         pc_offset_6 = instruction & 0x3f
 
         addr = self.registers.gprs[baser] + sext(pc_offset_6, 6)
-        self.memory[addr] = self.registers.gprs[dr]
+        self.mem_write(addr, self.registers.gprs[dr]) #self.memory[addr] = self.registers.gprs[dr]
 
     def op_trap_impl(self, instruction):
         trap_vector = instruction & 0xff
                     
         self.registers.gprs[7] = self.registers.pc.value            # R7 = PC;
-        self.registers.pc.value = self.memory[trap_vector&0x00ff]   #PC = mem[ZEXT(trapvect8)];
+        #PC = mem[ZEXT(trapvect8)];
+        self.registers.pc.value = self.mem_read(trap_vector&0x00ff) #self.memory[trap_vector&0x00ff]   
+        
 
         if trap_vector == 0x20: # getc
             c = stdin.buffer.read(1)[0]
@@ -257,8 +268,8 @@ class lc3():
             base_addr = self.registers.gprs[0]
             index = 0
 
-            while (self.memory[base_addr + index]) != 0x00:
-                nextchar = self.memory[base_addr + index]
+            while self.mem_read(base_addr + index) != 0x00: #self.memory[base_addr + index]
+                nextchar = self.mem_read(base_addr + index) #self.memory[base_addr + index]
                 stdout.buffer.write( bytes( [nextchar] ) )
                 index = index + 1
 
@@ -308,7 +319,7 @@ class lc3():
     def start(self):
         while True:
             # fetch instruction
-            instruction = self.memory[self.registers.pc.value]
+            instruction = self.mem_read(self.registers.pc.value) #self.memory[self.registers.pc.value]
 
             # update PC
             self.registers.pc.value = self.registers.pc.value + 1
