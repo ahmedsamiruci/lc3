@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args":["Assig2/Prob 1/asm files" , "1"]
+            "args":["Assig2/Prob 2/asm files" , "1"]
         }
     ]
 }

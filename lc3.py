@@ -55,6 +55,7 @@ class lc3():
         self.memory = array('H', [0]*65536)
         self.registers = registers()
         self.mr_sm = 0xFE04
+        self.mr_mpu = 0xFE06
         self.registers.pc.value = 0x3000 # default program starting location
         self.registers.cond = condition_flags.p #initialize conditional register
         self.workingDir = fileDir
@@ -99,7 +100,8 @@ class lc3():
     def dump_state(self):
         print('\n--- Processor State ---')
         print("pc: 0x{:04x}".format(self.registers.pc.value), end='  ')
-        print("mr_sm: 0x{:04x}".format(self.memory[self.mr_sm]), end='  ')
+        print("sm: 0x{:04x}".format(self.memory[self.mr_sm]), end='  ')
+        print("mpu: 0x{:04x}".format(self.memory[self.mr_mpu]), end='  ')
         print("cond: {}".format(condition_flags(self.registers.cond.value).name))
 
         # decimal
@@ -130,13 +132,46 @@ class lc3():
                     f.writelines("R{0}: {1}\n".format(i,c_uint16(self.registers.gprs[i]).value))
 
 
+    def mpu_restricted_addr(self, addr):
+        print("mpu mode: {}, access addr: 0x{:04x}".format(self.memory[self.mr_mpu], addr))
+        
+        # MPU = 0; no access restriction
+        if self.memory[self.mr_mpu] == 0: 
+            return False
+        
+        # MPU = 1;  CPU access: 0x3000 - 0x3FFF
+        elif self.memory[self.mr_mpu] == 1: 
+            return False if (addr in range(0x3000, 0x4000)) else True
+        
+        # MPU = 2;  CPU access: 0x4000 - 0x4FFF
+        elif self.memory[self.mr_mpu] == 2: 
+            return False if (addr in range(0x4000, 0x5000)) else True
+        
+        # MPU = 3;  CPU access: 0x5000 - 0x5FFF
+        elif self.memory[self.mr_mpu] == 3: 
+            return False if (addr in range(0x5000, 0x6000)) else True
+
+        # MPU = 4;  CPU access: 0x6000 - 0x6FFF
+        elif self.memory[self.mr_mpu] == 4: 
+            return False if (addr in range(0x6000, 0x7000)) else True
+
+        # MPU = 5;  CPU access: 0x7000 - 0x7FFF
+        elif self.memory[self.mr_mpu] == 5: 
+            return False if (addr in range(0x7000, 0x8000)) else True
+        
+        # MPU = 6;  CPU access: 0x8000 - 0x8FFF
+        elif self.memory[self.mr_mpu] == 6: 
+            return True if (addr in range(0x8000, 0x9000)) else False
+        
+
+
     def restricted_addr(self, addr):
         # List all restricted address for Supervisor Mode
         if addr == self.mr_sm:
                 return True
         
-        # Not restricted address
-        return False
+        # Check MPU
+        return self.mpu_restricted_addr(addr)
 
 
     def sup_mode(self):
@@ -281,6 +316,8 @@ class lc3():
         trap_vector = instruction & 0xff
         # Switch to Supervisor Mode
         self.memory[self.mr_sm] = 1
+        # Allow access the whole memory; MPU = 0
+        self.memory[self.mr_mpu] = 0
 
         self.registers.gprs[7] = self.registers.pc.value            # R7 = PC;
         #PC = mem[ZEXT(trapvect8)];
@@ -352,7 +389,8 @@ class lc3():
     def start(self):
         while True:
             # fetch instruction
-            instruction = self.memory[self.registers.pc.value]
+            #instruction = self.mem_read(self.registers.pc.value) #self.memory[self.registers.pc.value] 
+            instruction = self.memory[self.registers.pc.value] 
 
             # update PC
             self.registers.pc.value = self.registers.pc.value + 1
@@ -379,7 +417,8 @@ class lc3():
             except PermissionError:
                 print("Instn write/read permission violation!!")
                 self.dump_state()
-                self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump_p2_'))
+                #self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump_p2_'))
+                self.log_state(os.path.join(self.workingDir, 'dumps','access_'))
             except KeyError:
                 raise NotImplementedError("invalid opcode")
 
