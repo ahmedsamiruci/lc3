@@ -417,8 +417,8 @@ class lc3():
             except PermissionError:
                 print("Instn write/read permission violation!!")
                 self.dump_state()
-                #self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump_p2_'))
-                self.log_state(os.path.join(self.workingDir, 'dumps','access_'))
+                self.log_state(os.path.join(self.workingDir, 'dumps','memory_dump_p2_'))
+                #self.log_state(os.path.join(self.workingDir, 'dumps','access_'))
             except KeyError:
                 raise NotImplementedError("invalid opcode")
 
